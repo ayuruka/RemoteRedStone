@@ -5,7 +5,7 @@
 
     <groupId>com.example</groupId>
     <artifactId>remoteredstone</artifactId>
-    <version>Var1.0</version> <!-- 新しいバージョン名 -->
+    <version>Var1.0</version>
     <packaging>jar</packaging>
 
     <properties>
