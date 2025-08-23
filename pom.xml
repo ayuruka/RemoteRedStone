@@ -5,7 +5,7 @@
 
     <groupId>com.example</groupId>
     <artifactId>remoteredstone</artifactId>
-    <version>4.0</version>
+    <version>Var0.1-BATE</version>
     <packaging>jar</packaging>
 
     <properties>
@@ -40,17 +40,14 @@
         </plugins>
     </build>
 
-    <!-- ★★★★★ここがご指定のリポジトリ設定です★★★★★ -->
     <repositories>
         <repository>
             <id>elmakers-repo</id>
             <url>https://maven.elmakers.com/repository/</url>
         </repository>
     </repositories>
-    <!-- ★★★★★★★★★★★★★★★★★★★★★★★★★★★ -->
 
     <dependencies>
-        <!-- Bukkit/Spigot APIをWebリポジトリから取得する設定 -->
         <dependency>
             <groupId>org.spigotmc</groupId>
             <artifactId>spigot-api</artifactId>
@@ -58,7 +55,6 @@
             <scope>provided</scope>
         </dependency>
 
-        <!-- NanoHTTPDは変更なし -->
         <dependency>
             <groupId>org.nanohttpd</groupId>
             <artifactId>nanohttpd</artifactId>
