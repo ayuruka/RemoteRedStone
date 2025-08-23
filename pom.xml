@@ -5,7 +5,7 @@
 
     <groupId>com.example</groupId>
     <artifactId>remoteredstone</artifactId>
-    <version>Var0.1-BATE</version>
+    <version>Var0.2-BATE</version>
     <packaging>jar</packaging>
 
     <properties>
