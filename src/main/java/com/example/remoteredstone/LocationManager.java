@@ -6,6 +6,11 @@ import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.io.Reader;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.Collections;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -26,12 +31,18 @@ public class LocationManager {
         if (!configFile.exists()) {
             plugin.saveResource("locations.yml", false);
         }
-        dataConfig = YamlConfiguration.loadConfiguration(configFile);
+        try (Reader reader = new InputStreamReader(Files.newInputStream(configFile.toPath()), StandardCharsets.UTF_8)) {
+            dataConfig = YamlConfiguration.loadConfiguration(reader);
+        } catch (IOException e) {
+            plugin.getLogger().severe("Could not load locations.yml: " + e.getMessage());
+        }
     }
-
+    public void reloadConfig() {
+        setup();
+    }
     public void saveConfig() {
-        try {
-            dataConfig.save(configFile);
+        try (OutputStreamWriter writer = new OutputStreamWriter(Files.newOutputStream(configFile.toPath()), StandardCharsets.UTF_8)) {
+            writer.write(dataConfig.saveToString());
         } catch (IOException e) {
             plugin.getLogger().severe("Could not save locations.yml! " + e.getMessage());
         }
