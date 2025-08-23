@@ -6,9 +6,9 @@ import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.HashMap;
+import java.util.Collections;
 import java.util.Map;
-import java.util.Set;
+import java.util.stream.Collectors;
 
 public class LocationManager {
 
@@ -37,13 +37,40 @@ public class LocationManager {
         }
     }
 
-    public void addLocation(String name, String world, int x, int y, int z) {
+    public void addGroup(String groupId, String groupName, String memo) {
+        String path = "groups." + groupId;
+        dataConfig.set(path + ".name", groupName);
+        dataConfig.set(path + ".memo", memo);
+        saveConfig();
+    }
+
+    public void removeGroup(String groupId) {
+        dataConfig.set("groups." + groupId, null);
+        getAllLocations().entrySet().stream()
+                .filter(entry -> groupId.equals(entry.getValue().get("group")))
+                .forEach(entry -> removeLocation(entry.getKey()));
+        saveConfig();
+    }
+
+    public Map<String, Map<String, Object>> getAllGroups() {
+        ConfigurationSection section = dataConfig.getConfigurationSection("groups");
+        if (section == null) return Collections.emptyMap();
+        return section.getKeys(false).stream()
+                .filter(section::isConfigurationSection)
+                .collect(Collectors.toMap(
+                        key -> key,
+                        key -> section.getConfigurationSection(key).getValues(false)
+                ));
+    }
+
+    public void addLocation(String name, String world, int x, int y, int z, String groupId) {
         String path = "locations." + name;
         dataConfig.set(path + ".world", world);
         dataConfig.set(path + ".x", x);
         dataConfig.set(path + ".y", y);
         dataConfig.set(path + ".z", z);
         dataConfig.set(path + ".state", "OFF");
+        dataConfig.set(path + ".group", groupId);
         saveConfig();
     }
 
@@ -58,14 +85,13 @@ public class LocationManager {
     }
 
     public Map<String, Map<String, Object>> getAllLocations() {
-        Map<String, Map<String, Object>> locations = new HashMap<>();
         ConfigurationSection section = dataConfig.getConfigurationSection("locations");
-        if (section != null) {
-            Set<String> keys = section.getKeys(false);
-            for (String key : keys) {
-                locations.put(key, section.getConfigurationSection(key).getValues(false));
-            }
-        }
-        return locations;
+        if (section == null) return Collections.emptyMap();
+        return section.getKeys(false).stream()
+                .filter(section::isConfigurationSection)
+                .collect(Collectors.toMap(
+                        key -> key,
+                        key -> section.getConfigurationSection(key).getValues(false)
+                ));
     }
 }

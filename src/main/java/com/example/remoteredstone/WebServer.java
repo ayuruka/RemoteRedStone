@@ -3,149 +3,160 @@ package com.example.remoteredstone;
 import fi.iki.elonen.NanoHTTPD;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 public class WebServer extends NanoHTTPD {
 
     private final RemoteRedstone plugin;
+    private final List<String> worldNames;
 
-    public WebServer(int port, RemoteRedstone plugin) {
+    public WebServer(int port, RemoteRedstone plugin, List<String> worldNames) {
         super(port);
         this.plugin = plugin;
+        this.worldNames = worldNames;
     }
 
     @Override
     public Response serve(IHTTPSession session) {
         String uri = session.getUri();
-        Map<String, List<String>> params = session.getParameters();
         if (uri.startsWith("/api/")) {
-            String action = uri.substring(5);
-            if ("add".equals(action)) {
-                try {
-                    String name = params.get("name").get(0).replaceAll("[^a-zA-Z0-9_-]", "");
-                    String world = params.get("world").get(0);
-                    String x = params.get("x").get(0);
-                    String y = params.get("y").get(0);
-                    String z = params.get("z").get(0);
+            return handleApiRequest(uri, session.getParameters());
+        }
+        return newFixedLengthResponse(generateDashboard());
+    }
 
-                    plugin.locationManager.addLocation(name, world, Integer.parseInt(x), Integer.parseInt(y), Integer.parseInt(z));
-                    plugin.setSwitchBlock(world, x, y, z, false);
-                    return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"status\":\"success\", \"message\":\"Added '" + name + "' successfully!\"}");
-                } catch (Exception e) {
-                    return newFixedLengthResponse(Response.Status.BAD_REQUEST, "application/json", "{\"status\":\"error\", \"message\":\"Invalid input.\"}");
-                }
+    private Response handleApiRequest(String uri, Map<String, List<String>> params) {
+        String action = uri.substring(5);
+
+        try {
+            if ("add-group".equals(action)) {
+                String groupName = params.get("groupName").get(0);
+                String memo = params.get("memo").get(0);
+                String groupId = groupName.toLowerCase().replaceAll("\\s+", "-").replaceAll("[^a-z0-9-]", "");
+                plugin.locationManager.addGroup(groupId, groupName, memo);
+                return jsonResponse(200, "success", "Group '" + groupName + "' added.");
             }
-            if ("remove".equals(action)) {
+            if ("remove-group".equals(action)) {
+                String groupId = params.get("groupId").get(0);
+                plugin.locationManager.removeGroup(groupId);
+                return jsonResponse(200, "success", "Group and its switches removed.");
+            }
+            if ("toggle-group".equals(action)) {
+                String groupId = params.get("groupId").get(0);
+                boolean isON = "set".equals(params.get("state").get(0));
+                plugin.setGroupState(groupId, isON);
+                return jsonResponse(200, "success", "Group state changed.");
+            }
+            if ("add-switch".equals(action)) {
+                String name = params.get("name").get(0).replaceAll("[^a-zA-Z0-9_-]", "");
+                String world = params.get("world").get(0);
+                String x = params.get("x").get(0);
+                String y = params.get("y").get(0);
+                String z = params.get("z").get(0);
+                String groupId = params.get("group").get(0);
+                plugin.locationManager.addLocation(name, world, Integer.parseInt(x), Integer.parseInt(y), Integer.parseInt(z), groupId);
+                plugin.setSwitchBlock(world, x, y, z, false);
+                return jsonResponse(200, "success", "Added switch '" + name + "'.");
+            }
+            if ("remove-switch".equals(action)) {
                 String name = params.get("name").get(0);
                 Map<String, Object> loc = plugin.locationManager.getAllLocations().get(name);
                 if (loc != null) {
                     plugin.removeSwitchBlock(loc.get("world").toString(), loc.get("x").toString(), loc.get("y").toString(), loc.get("z").toString());
                     plugin.locationManager.removeLocation(name);
-                    return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"status\":\"success\", \"message\":\"Removed '" + name + "' successfully!\"}");
+                    return jsonResponse(200, "success", "Removed switch '" + name + "'.");
                 }
             }
-            if ("toggle".equals(action)) {
+            if ("toggle-switch".equals(action)) {
                 String name = params.get("name").get(0);
-                boolean newIsOnState = "set".equals(params.get("action").get(0));
+                boolean isON = "set".equals(params.get("state").get(0));
                 Map<String, Object> loc = plugin.locationManager.getAllLocations().get(name);
                 if (loc != null) {
-                    plugin.setSwitchBlock(loc.get("world").toString(), loc.get("x").toString(), loc.get("y").toString(), loc.get("z").toString(), newIsOnState);
-                    plugin.locationManager.updateLocationState(name, newIsOnState ? "ON" : "OFF");
-                    return newFixedLengthResponse(Response.Status.OK, "application/json", "{\"status\":\"success\", \"newState\":\"" + (newIsOnState ? "ON" : "OFF") + "\"}");
+                    plugin.setSwitchBlock(loc.get("world").toString(), loc.get("x").toString(), loc.get("y").toString(), loc.get("z").toString(), isON);
+                    plugin.locationManager.updateLocationState(name, isON ? "ON" : "OFF");
+                    return jsonResponse(200, "success", "Toggled switch '" + name + "'.");
                 }
             }
-            return newFixedLengthResponse(Response.Status.NOT_FOUND, "application/json", "{\"status\":\"error\", \"message\":\"API endpoint not found.\"}");
+        } catch (Exception e) {
+            return jsonResponse(400, "error", "Invalid request parameters.");
         }
-        return newFixedLengthResponse(generateDashboard());
+        return jsonResponse(404, "error", "API endpoint not found.");
+    }
+
+    private Response jsonResponse(int status, String result, String message) {
+        Response.IStatus responseStatus = Response.Status.INTERNAL_ERROR;
+        if(status == 200) responseStatus = Response.Status.OK;
+        if(status == 400) responseStatus = Response.Status.BAD_REQUEST;
+        if(status == 404) responseStatus = Response.Status.NOT_FOUND;
+
+        return newFixedLengthResponse(responseStatus, "application/json",
+                "{\"status\":\"" + result + "\", \"message\":\"" + message + "\"}");
     }
 
     private String generateDashboard() {
-        StringBuilder html = new StringBuilder("<!DOCTYPE html><html><head><title>Remote Redstone Dashboard</title><meta name='viewport' content='width=device-width, initial-scale=1'><style>");
-        html.append("body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#1e1e1e;color:#e0e0e0;margin:0;padding:15px;}");
-        html.append(".header h1{color:#4fc3f7;margin:0;}");
-        html.append(".container{max-width:900px;margin:0 auto;padding:20px;background:#2a2a2a;border-radius:10px;box-shadow:0 0 20px rgba(0,0,0,0.5);} ");
-        html.append("table{width:100%;border-collapse:collapse;margin-bottom:20px;} th,td{padding:12px 15px;text-align:left;border-bottom:1px solid #444;} th{background:#333;}");
-        html.append(".btn{padding:6px 12px;text-decoration:none;color:white;border-radius:5px;margin-right:5px;border:none;font-size:14px;cursor:pointer;} .on{background:#43a047;} .off{background:#d32f2f;} .del{background:#616161;} .btn:hover{opacity:0.8;}");
-        html.append(".btn:disabled{background:#555;color:#999;cursor:not-allowed;}");
-        html.append("h2{border-bottom:2px solid #4fc3f7;padding-bottom:10px;margin-top:30px;}");
-        html.append(".form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:10px;align-items:center;} form input{width:100%;padding:10px;background:#333;border:1px solid #555;color:#fff;border-radius:5px;box-sizing:border-box;}");
-        html.append(".form-grid button{grid-column:1/-1;background:#0288d1;color:#fff;padding:12px;font-size:16px;}");
-        html.append(".msg{background:rgba(2,136,209,0.5);padding:12px;border-radius:5px;margin-bottom:15px;border-left:5px solid #0288d1;display:none;}"); // 初期状態は非表示
-        html.append("</style></head><body><div class='container'><div class='header'><h1>Redstone Dashboard</h1></div>");
-        html.append("<div id='message-box' class='msg'></div>"); // メッセージ表示用のボックス
-
-        html.append("<h2>Registered Switches</h2><table id='switch-table'><thead><tr><th>Name</th><th>Location</th><th>Actions</th></tr></thead><tbody>");
+        Map<String, Map<String, Object>> groups = plugin.locationManager.getAllGroups();
         Map<String, Map<String, Object>> locations = plugin.locationManager.getAllLocations();
-        if (locations.isEmpty()) {
-            html.append("<tr><td colspan='3'>No switches registered yet.</td></tr>");
-        } else {
-            for (Map.Entry<String, Map<String, Object>> entry : locations.entrySet()) {
-                String name = entry.getKey();
-                Map<String, Object> loc = entry.getValue();
-                String currentState = loc.getOrDefault("state", "OFF").toString();
-                boolean isON = currentState.equals("ON");
-                String locStr = String.format("%s @ %s,%s,%s", loc.get("world"), loc.get("x"), loc.get("y"), loc.get("z"));
-                html.append("<tr data-name='").append(name).append("'><td>").append(name).append("</td><td>").append(locStr).append("</td><td>");
-                html.append("<button data-action='set' class='btn on' ").append(isON ? "disabled" : "").append(">ON</button>");
-                html.append("<button data-action='clear' class='btn off' ").append(!isON ? "disabled" : "").append(">OFF</button>");
-                html.append("<button data-action='remove' class='btn del'>Delete</button>");
-                html.append("</td></tr>");
-            }
-        }
-        html.append("</tbody></table>");
+        String worldOptions = worldNames.stream().map(name -> "<option value='" + name + "'>" + name + "</option>").collect(Collectors.joining());
 
-        html.append("<h2>Add New Switch</h2><form id='add-form' class='form-grid'>");
-        html.append("<input type='text' name='name' placeholder='Switch Name' required>");
-        html.append("<input type='text' name='world' placeholder='World' required>");
-        html.append("<input type='number' name='x' placeholder='X' required>");
-        html.append("<input type='number' name='y' placeholder='Y' required>");
-        html.append("<input type='number' name='z' placeholder='Z' required>");
-        html.append("<button type='submit' class='btn'>Add Switch</button></form>");
+        StringBuilder html = new StringBuilder("<!DOCTYPE html><html lang='en'><head><title>Remote Redstone Dashboard</title><meta name='viewport' content='width=device-width, initial-scale=1'><style>");
+        html.append("body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background-color:#1e1e1e;color:#e0e0e0;margin:0;padding:15px;}");
+        html.append(".container{max-width:960px;margin:0 auto;} h1,h2,h3{color:#4fc3f7;border-bottom:1px solid #444;padding-bottom:10px;margin-top:1.5em;}");
+        html.append(".group{background-color:#2a2a2a;padding:20px;border-radius:10px;margin-bottom:20px;box-shadow:0 4px 8px rgba(0,0,0,0.3);} .group-header{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;}");
+        html.append(".group-memo{color:#aaa;font-style:italic;margin-top:5px;flex-basis:100%;} .actions button, .actions a {margin-left:10px;}");
+        html.append("table{width:100%;border-collapse:collapse;margin:20px 0;} th,td{padding:12px 15px;text-align:left;border-bottom:1px solid #444;} thead{background-color:#333;}");
+        html.append(".btn{padding:8px 15px;text-decoration:none;color:white;border-radius:5px;border:none;font-size:14px;cursor:pointer;transition:background-color 0.2s;}");
+        html.append(".btn-on{background-color:#43a047;} .btn-off{background-color:#d32f2f;} .btn-del{background-color:#616161;} .btn:hover{opacity:0.8;} .btn:disabled{background-color:#555;color:#999;cursor:not-allowed;}");
+        html.append("form{display:grid;gap:10px;} .form-grid{grid-template-columns:repeat(auto-fit,minmax(120px,1fr));} form input, form select{width:100%;padding:10px;background-color:#333;border:1px solid #555;color:#fff;border-radius:5px;box-sizing:border-box;}");
+        html.append("form button{background-color:#0288d1;padding:12px;font-size:16px;grid-column:1/-1;} .msg{padding:12px;border-radius:5px;margin-bottom:15px;border-left:5px solid #0288d1;display:none;}");
+        html.append("</style></head><body><div class='container'><h1>Redstone Dashboard</h1><div id='message-box' class='msg'></div>");
+
+        html.append("<h2>Add New Group</h2><form data-action='add-group' class='form-grid'><input name='groupName' placeholder='New Group Name' required><input name='memo' placeholder='Memo (optional)'><button type='submit' class='btn'>Create Group</button></form>");
+
+        for (Map.Entry<String, Map<String, Object>> groupEntry : groups.entrySet()) {
+            String groupId = groupEntry.getKey();
+            Map<String, Object> groupData = groupEntry.getValue();
+            html.append("<div class='group' id='group-").append(groupId).append("'><div class='group-header'><h3>").append(groupData.get("name")).append("</h3>");
+            html.append("<div class='actions'><button class='btn btn-on' data-action='toggle-group' data-group-id='").append(groupId).append("' data-state='set'>All ON</button>");
+            html.append("<button class='btn btn-off' data-action='toggle-group' data-group-id='").append(groupId).append("' data-state='clear'>All OFF</button>");
+            html.append("<button class='btn btn-del' data-action='remove-group' data-group-id='").append(groupId).append("'>Delete Group</button></div>");
+            html.append("<p class='group-memo'>").append(groupData.get("memo")).append("</p></div>");
+
+            html.append("<table><thead><tr><th>Name</th><th>Location</th><th>Actions</th></tr></thead><tbody>");
+            boolean hasSwitches = false;
+            for (Map.Entry<String, Map<String, Object>> locEntry : locations.entrySet()) {
+                if (groupId.equals(locEntry.getValue().get("group"))) {
+                    hasSwitches = true;
+                    String name = locEntry.getKey();
+                    Map<String, Object> loc = locEntry.getValue();
+                    boolean isON = "ON".equals(loc.getOrDefault("state", "OFF"));
+                    String locStr = String.format("%s @ %s, %s, %s", loc.get("world"), loc.get("x"), loc.get("y"), loc.get("z"));
+                    html.append("<tr data-name='").append(name).append("'><td>").append(name).append("</td><td>").append(locStr).append("</td><td>");
+                    html.append("<button class='btn btn-on' data-action='toggle-switch' data-name='").append(name).append("' data-state='set' ").append(isON ? "disabled" : "").append(">ON</button>");
+                    html.append("<button class='btn btn-off' data-action='toggle-switch' data-name='").append(name).append("' data-state='clear' ").append(!isON ? "disabled" : "").append(">OFF</button>");
+                    html.append("<button class='btn btn-del' data-action='remove-switch' data-name='").append(name).append("'>Delete</button>");
+                    html.append("</td></tr>");
+                }
+            }
+            if (!hasSwitches) html.append("<tr><td colspan='3'>No switches in this group yet.</td></tr>");
+            html.append("</tbody></table>");
+
+            html.append("<h4>Add Switch to Group</h4><form data-action='add-switch' class='form-grid'><input type='hidden' name='group' value='").append(groupId).append("'>");
+            html.append("<input name='name' placeholder='Switch Name' required><select name='world' required>").append(worldOptions).append("</select>");
+            html.append("<input type='number' name='x' placeholder='X' required><input type='number' name='y' placeholder='Y' required><input type='number' name='z' placeholder='Z' required>");
+            html.append("<button type='submit' class='btn'>Add Switch</button></form></div>");
+        }
 
         html.append("<script>");
-        html.append("const table = document.getElementById('switch-table');");
-        html.append("const addForm = document.getElementById('add-form');");
-        html.append("const msgBox = document.getElementById('message-box');");
-
-        html.append("function showMessage(text, isError = false) { msgBox.textContent = text; msgBox.style.display = 'block'; msgBox.style.backgroundColor = isError ? '#c0392b' : 'rgba(2,136,209,0.5)'; setTimeout(() => { msgBox.style.display = 'none'; }, 3000); }");
-
-        html.append("table.addEventListener('click', async (e) => {");
-        html.append("  if (e.target.tagName !== 'BUTTON') return;");
-        html.append("  e.preventDefault();");
-        html.append("  const button = e.target;");
-        html.append("  const row = button.closest('tr');");
-        html.append("  const name = row.dataset.name;");
-        html.append("  const action = button.dataset.action;");
-
-        html.append("  if (action === 'remove' && !confirm(`Delete '${name}' permanently?`)) return;");
-
-        html.append("  let url = (action === 'remove') ? `/api/remove?name=${name}` : `/api/toggle?name=${name}&action=${action}`;");
-        html.append("  const response = await fetch(url);");
-        html.append("  const data = await response.json();");
-
-        html.append("  if (data.status === 'success') {");
-        html.append("    if (action === 'remove') { row.remove(); }");
-        html.append("    else {");
-        html.append("      const isNowOn = data.newState === 'ON';");
-        html.append("      row.querySelector('.on').disabled = isNowOn;");
-        html.append("      row.querySelector('.off').disabled = !isNowOn;");
-        html.append("    }");
-        html.append("  }");
-        html.append("});");
-
-        html.append("addForm.addEventListener('submit', async (e) => {");
-        html.append("  e.preventDefault();");
-        html.append("  const formData = new FormData(addForm);");
-        html.append("  const params = new URLSearchParams(formData);");
-        html.append("  const response = await fetch(`/api/add?${params.toString()}`);");
-        html.append("  const data = await response.json();");
-
-        html.append("  if (data.status === 'success') { window.location.reload(); }");
-        html.append("  else { showMessage(data.message, true); }");
-        html.append("});");
-
-        html.append("</script>");
-
-        html.append("</div></body></html>");
+        html.append("const msgBox=document.getElementById('message-box');");
+        html.append("function showMsg(txt,isErr){msgBox.textContent=txt;msgBox.style.backgroundColor=isErr?'#c0392b':'rgba(2,136,209,0.5)';msgBox.style.display='block';setTimeout(()=>msgBox.style.display='none',4000);}");
+        html.append("document.body.addEventListener('submit',async e=>{e.preventDefault();const form=e.target;const action=form.dataset.action;if(!action)return;const formData=new FormData(form);const params=new URLSearchParams(formData);const res=await fetch(`/api/${action}?${params.toString()}`);const data=await res.json();if(data.status==='success'){window.location.reload()}else{showMsg(data.message,true)}});");
+        html.append("document.body.addEventListener('click',async e=>{const btn=e.target;const action=btn.dataset.action;if(!action||btn.tagName!=='BUTTON')return;e.preventDefault();let url,confirmMsg;");
+        html.append("if(action==='toggle-switch'){url=`/api/toggle-switch?name=${btn.dataset.name}&state=${btn.dataset.state}`}");
+        html.append("else if(action==='remove-switch'){confirmMsg=`Delete switch '${btn.dataset.name}'?`;url=`/api/remove-switch?name=${btn.dataset.name}`}");
+        html.append("else if(action==='toggle-group'){url=`/api/toggle-group?groupId=${btn.dataset.groupId}&state=${btn.dataset.state}`}");
+        html.append("else if(action==='remove-group'){confirmMsg=`Delete group and ALL its switches?`;url=`/api/remove-group?groupId=${btn.dataset.groupId}`}");
+        html.append("else return;if(confirmMsg&&!confirm(confirmMsg))return;const res=await fetch(url);const data=await res.json();if(data.status==='success'){window.location.reload()}else{showMsg(data.message,true)}});");
+        html.append("</script></div></body></html>");
         return html.toString();
     }
 }
