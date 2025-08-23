@@ -1,6 +1,10 @@
 package com.example.remoteredstone;
 
+import com.google.gson.Gson;
 import fi.iki.elonen.NanoHTTPD;
+import org.bukkit.Location;
+
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -9,6 +13,7 @@ public class WebServer extends NanoHTTPD {
 
     private final RemoteRedstone plugin;
     private final List<String> worldNames;
+    private final Gson gson = new Gson();
 
     public WebServer(int port, RemoteRedstone plugin, List<String> worldNames) {
         super(port);
@@ -29,9 +34,34 @@ public class WebServer extends NanoHTTPD {
         String action = uri.substring(5);
 
         try {
+            if ("request-wand".equals(action)) {
+                String playerName = params.get("player").get(0);
+                boolean success = plugin.giveSelectionWand(playerName);
+                if (success) {
+                    return jsonResponse(200, "success", "Wand given to player " + playerName);
+                } else {
+                    return jsonResponse(400, "error", "Player " + playerName + " not found or offline.");
+                }
+            }
+            if ("poll-selection".equals(action)) {
+                String playerName = params.get("player").get(0);
+                Location loc = plugin.pollSelectedLocation(playerName);
+                Map<String, Object> responseData = new HashMap<>();
+                if (loc != null) {
+                    responseData.put("status", "found");
+                    responseData.put("world", loc.getWorld().getName());
+                    responseData.put("x", loc.getBlockX());
+                    responseData.put("y", loc.getBlockY());
+                    responseData.put("z", loc.getBlockZ());
+                } else {
+                    responseData.put("status", "waiting");
+                }
+                return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(responseData));
+            }
             if ("add-group".equals(action)) {
                 String groupName = params.get("groupName").get(0);
-                String memo = params.get("memo").get(0);
+                List<String> memoList = params.get("memo");
+                String memo = (memoList != null && !memoList.isEmpty()) ? memoList.get(0) : "";
                 String groupId = groupName.toLowerCase().replaceAll("\\s+", "-").replaceAll("[^a-z0-9-]", "");
                 plugin.locationManager.addGroup(groupId, groupName, memo);
                 return jsonResponse(200, "success", "Group '" + groupName + "' added.");
@@ -78,6 +108,7 @@ public class WebServer extends NanoHTTPD {
                 }
             }
         } catch (Exception e) {
+            plugin.getLogger().warning("An error occurred while handling API request: " + e.getMessage());
             return jsonResponse(400, "error", "Invalid request parameters.");
         }
         return jsonResponse(404, "error", "API endpoint not found.");
@@ -106,7 +137,8 @@ public class WebServer extends NanoHTTPD {
         html.append("table{width:100%;border-collapse:collapse;margin:20px 0;} th,td{padding:12px 15px;text-align:left;border-bottom:1px solid #444;} thead{background-color:#333;}");
         html.append(".btn{padding:8px 15px;text-decoration:none;color:white;border-radius:5px;border:none;font-size:14px;cursor:pointer;transition:background-color 0.2s;}");
         html.append(".btn-on{background-color:#43a047;} .btn-off{background-color:#d32f2f;} .btn-del{background-color:#616161;} .btn:hover{opacity:0.8;} .btn:disabled{background-color:#555;color:#999;cursor:not-allowed;}");
-        html.append("form{display:grid;gap:10px;} .form-grid{grid-template-columns:repeat(auto-fit,minmax(120px,1fr));} form input, form select{width:100%;padding:10px;background-color:#333;border:1px solid #555;color:#fff;border-radius:5px;box-sizing:border-box;}");
+        html.append("form{display:grid;gap:10px;} .form-grid{grid-template-columns:repeat(auto-fit,minmax(120px,1fr));} .coord-selector{grid-column:1/-1;display:flex;gap:10px;}");
+        html.append("form input,form select{width:100%;padding:10px;background-color:#333;border:1px solid #555;color:#fff;border-radius:5px;box-sizing:border-box;}");
         html.append("form button{background-color:#0288d1;padding:12px;font-size:16px;grid-column:1/-1;} .msg{padding:12px;border-radius:5px;margin-bottom:15px;border-left:5px solid #0288d1;display:none;}");
         html.append("</style></head><body><div class='container'><h1>Redstone Dashboard</h1><div id='message-box' class='msg'></div>");
 
@@ -143,14 +175,17 @@ public class WebServer extends NanoHTTPD {
             html.append("<h4>Add Switch to Group</h4><form data-action='add-switch' class='form-grid'><input type='hidden' name='group' value='").append(groupId).append("'>");
             html.append("<input name='name' placeholder='Switch Name' required><select name='world' required>").append(worldOptions).append("</select>");
             html.append("<input type='number' name='x' placeholder='X' required><input type='number' name='y' placeholder='Y' required><input type='number' name='z' placeholder='Z' required>");
+            html.append("<div class='coord-selector'><input name='playerName' placeholder='Your IGN for Wand'><button type='button' class='btn' data-action='request-wand'>Select Block</button></div>");
             html.append("<button type='submit' class='btn'>Add Switch</button></form></div>");
         }
 
         html.append("<script>");
-        html.append("const msgBox=document.getElementById('message-box');");
-        html.append("function showMsg(txt,isErr){msgBox.textContent=txt;msgBox.style.backgroundColor=isErr?'#c0392b':'rgba(2,136,209,0.5)';msgBox.style.display='block';setTimeout(()=>msgBox.style.display='none',4000);}");
+        html.append("const msgBox=document.getElementById('message-box');let pollInterval=null;");
+        html.append("function showMsg(txt,isErr){msgBox.textContent=txt;msgBox.style.backgroundColor=isErr?'#c0392b':'rgba(2,136,209,0.5)';msgBox.style.display='block';setTimeout(()=>msgBox.style.display='none',5000);}");
+        html.append("function startPolling(playerName,form){if(pollInterval)clearInterval(pollInterval);let attempts=0;pollInterval=setInterval(async()=>{const res=await fetch(`/api/poll-selection?player=${playerName}`);const data=await res.json();if(data.status==='found'){clearInterval(pollInterval);form.querySelector('[name=world]').value=data.world;form.querySelector('[name=x]').value=data.x;form.querySelector('[name=y]').value=data.y;form.querySelector('[name=z]').value=data.z;showMsg('Coordinates received!')}attempts++;if(attempts>60){clearInterval(pollInterval);showMsg('Selection timed out.',true)}},1000)}");
         html.append("document.body.addEventListener('submit',async e=>{e.preventDefault();const form=e.target;const action=form.dataset.action;if(!action)return;const formData=new FormData(form);const params=new URLSearchParams(formData);const res=await fetch(`/api/${action}?${params.toString()}`);const data=await res.json();if(data.status==='success'){window.location.reload()}else{showMsg(data.message,true)}});");
         html.append("document.body.addEventListener('click',async e=>{const btn=e.target;const action=btn.dataset.action;if(!action||btn.tagName!=='BUTTON')return;e.preventDefault();let url,confirmMsg;");
+        html.append("if(action==='request-wand'){const form=btn.closest('form');const input=form.querySelector('[name=playerName]');if(!input.value){showMsg('Please enter your player name.',true);return}const res=await fetch(`/api/request-wand?player=${input.value}`);const data=await res.json();if(data.status==='success'){showMsg('Wand sent! Right-click a block in-game.');startPolling(input.value,form)}else{showMsg(data.message,true)}return}");
         html.append("if(action==='toggle-switch'){url=`/api/toggle-switch?name=${btn.dataset.name}&state=${btn.dataset.state}`}");
         html.append("else if(action==='remove-switch'){confirmMsg=`Delete switch '${btn.dataset.name}'?`;url=`/api/remove-switch?name=${btn.dataset.name}`}");
         html.append("else if(action==='toggle-group'){url=`/api/toggle-group?groupId=${btn.dataset.groupId}&state=${btn.dataset.state}`}");
