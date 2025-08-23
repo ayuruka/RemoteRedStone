@@ -1,18 +1,3 @@
-/*
- * Copyright [2025] [ayuruka]
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package com.example.remoteredstone;
 
 import org.bukkit.Bukkit;
@@ -32,7 +17,6 @@ public class RemoteRedstone extends JavaPlugin {
     @Override
     public void onEnable() {
         this.locationManager = new LocationManager(this);
-
         saveDefaultConfig();
         int port = getConfig().getInt("web-port", 8080);
 
@@ -53,32 +37,42 @@ public class RemoteRedstone extends JavaPlugin {
         }
     }
 
-    public String setRedstoneBlock(String worldName, String xStr, String yStr, String zStr, final boolean placeBlock) {
-        final World world = Bukkit.getWorld(worldName);
-        if (world == null) {
-            return "World '" + worldName + "' not found.";
-        }
-        final int x, y, z;
+    public void setSwitchBlock(String worldName, String xStr, String yStr, String zStr, final boolean isON) {
+        World world = Bukkit.getWorld(worldName);
+        if (world == null) return;
         try {
-            x = Integer.parseInt(xStr);
-            y = Integer.parseInt(yStr);
-            z = Integer.parseInt(zStr);
-        } catch (NumberFormatException e) {
-            return "Coordinates must be valid numbers.";
-        }
+            final int x = Integer.parseInt(xStr);
+            final int y = Integer.parseInt(yStr);
+            final int z = Integer.parseInt(zStr);
+            final Material materialToSet = isON ? Material.REDSTONE_BLOCK : Material.GLASS;
 
-        Bukkit.getScheduler().runTask(this, () -> {
-            Chunk chunk = world.getChunkAt(x >> 4, z >> 4);
-            if (!chunk.isLoaded()) {
-                chunk.load();
-            }
-            Location loc = new Location(world, x, y, z);
-            loc.getBlock().setType(placeBlock ? Material.REDSTONE_BLOCK : Material.AIR);
-        });
-        if (placeBlock) {
-            return "Set redstone block at " + worldName + " " + x + "," + y + "," + z;
-        } else {
-            return "Cleared block at " + worldName + " " + x + "," + y + "," + z;
+            Bukkit.getScheduler().runTask(this, () -> {
+                Chunk chunk = world.getChunkAt(x >> 4, z >> 4);
+                if (!chunk.isLoaded()) chunk.load();
+
+                new Location(world, x, y, z).getBlock().setType(materialToSet);
+            });
+        } catch (NumberFormatException e) {
+            getLogger().warning("Invalid coordinates provided to setSwitchBlock.");
+        }
+    }
+
+    public void removeSwitchBlock(String worldName, String xStr, String yStr, String zStr) {
+        World world = Bukkit.getWorld(worldName);
+        if (world == null) return;
+        try {
+            final int x = Integer.parseInt(xStr);
+            final int y = Integer.parseInt(yStr);
+            final int z = Integer.parseInt(zStr);
+
+            Bukkit.getScheduler().runTask(this, () -> {
+                Chunk chunk = world.getChunkAt(x >> 4, z >> 4);
+                if (!chunk.isLoaded()) chunk.load();
+
+                new Location(world, x, y, z).getBlock().setType(Material.AIR);
+            });
+        } catch (NumberFormatException e) {
+            getLogger().warning("Invalid coordinates provided to removeSwitchBlock.");
         }
     }
 }
