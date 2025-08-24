@@ -59,16 +59,15 @@ public class LocationManager {
         }
     }
 
-    public void updateGroupOrder(String groupA_id, String groupB_id) {
-        String pathA = "groups." + groupA_id;
-        String pathB = "groups." + groupB_id;
-        if (dataConfig.isConfigurationSection(pathA) && dataConfig.isConfigurationSection(pathB)) {
-            long orderA = dataConfig.getLong(pathA + ".order", 0);
-            long orderB = dataConfig.getLong(pathB + ".order", 0);
-            dataConfig.set(pathA + ".order", orderB);
-            dataConfig.set(pathB + ".order", orderA);
-            saveConfig();
+    public void saveGroupOrder(List<String> orderedGroupIds) {
+        for (int i = 0; i < orderedGroupIds.size(); i++) {
+            String groupId = orderedGroupIds.get(i);
+            String path = "groups." + groupId;
+            if (dataConfig.isConfigurationSection(path)) {
+                dataConfig.set(path + ".order", i);
+            }
         }
+        saveConfig();
     }
 
     public void removeGroup(String groupId) {
