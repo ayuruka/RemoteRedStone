@@ -49,9 +49,15 @@ public class WebServer extends NanoHTTPD {
 
     private Response handleApiRequest(String uri, IHTTPSession session) {
         String action = uri.substring(5);
+        Map<String, String> params = new HashMap<>();
+        try {
+            session.parseBody(new HashMap<>());
+            params.putAll(session.getParms());
+        } catch (IOException | ResponseException e) {
+            params.putAll(session.getParms());
+        }
 
         try {
-            // 特別なJSONボディを持つPOSTリクエストを先に処理
             if ("get-live-states".equals(action) && session.getMethod() == Method.POST) {
                 Map<String, String> files = new HashMap<>();
                 try {
@@ -66,42 +72,12 @@ public class WebServer extends NanoHTTPD {
                 return jsonResponse(400, "error", "Missing or invalid POST body for live-states.");
             }
 
-            // その他のGETリクエストとPOSTフォームデータリクエストを処理
-            // session.getParms()は、GETとPOST(form-urlencoded)の両方のパラメータを自動的に扱ってくれる
-            Map<String, String> params = new HashMap<>();
-            try {
-                session.parseBody(params); // POSTフォームデータをパース
-                params.putAll(session.getParms()); // GETクエリパラメータをマージ
-            } catch (IOException | ResponseException e) {
-                // GETリクエストの場合はここに到達する可能性があるが、問題ない
-                params.putAll(session.getParms());
-            }
-
-            if ("request-wand".equals(action)) {
-                String playerName = decodeParam(params.get("player"));
-                boolean success = plugin.giveSelectionWand(playerName);
-                if (success) { return jsonResponse(200, "success", "Wand given to player " + playerName); }
-                else { return jsonResponse(400, "error", "Player " + playerName + " not found or offline."); }
-            }
-            if ("poll-selection".equals(action)) {
-                String playerName = decodeParam(params.get("player"));
-                Location loc = plugin.pollSelectedLocation(playerName);
-                Map<String, Object> responseData = new HashMap<>();
-                if (loc != null) {
-                    responseData.put("status", "found");
-                    responseData.put("world", loc.getWorld().getName());
-                    responseData.put("x", loc.getBlockX());
-                    responseData.put("y", loc.getBlockY());
-                    responseData.put("z", loc.getBlockZ());
-                } else {
-                    responseData.put("status", "waiting");
-                }
-                return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(responseData));
-            }
             if ("update-group".equals(action)) { plugin.locationManager.updateGroup(decodeParam(params.get("groupId")), decodeParam(params.get("newName")), decodeParam(params.get("newMemo"))); return jsonResponse(200, "success", "Group updated."); }
             if ("update-switch".equals(action)) { plugin.locationManager.updateSwitch(decodeParam(params.get("switchId")), decodeParam(params.get("newName"))); return jsonResponse(200, "success", "Switch updated."); }
             if ("toggle-switch".equals(action)) { String switchId = decodeParam(params.get("switchId")); boolean isON = "set".equals(decodeParam(params.get("state"))); Map<String, Object> loc = plugin.locationManager.getAllLocations().get(switchId); if (loc != null) { plugin.setSwitchBlock(loc.get("world").toString(), loc.get("x").toString(), loc.get("y").toString(), loc.get("z").toString(), isON); plugin.locationManager.updateLocationState(switchId, isON ? "ON" : "OFF"); return jsonResponse(200, "success", "Toggling switch..."); } }
             if ("remove-switch".equals(action)) { String switchId = decodeParam(params.get("switchId")); Map<String, Object> loc = plugin.locationManager.getAllLocations().get(switchId); if (loc != null) { plugin.removeSwitchBlock(loc.get("world").toString(), loc.get("x").toString(), loc.get("y").toString(), loc.get("z").toString()); plugin.locationManager.removeLocation(switchId); return jsonResponse(200, "success", "Removed switch."); } }
+            if ("request-wand".equals(action)) { String playerName = decodeParam(params.get("player")); boolean success = plugin.giveSelectionWand(playerName); if (success) { return jsonResponse(200, "success", "Wand given to player " + playerName); } else { return jsonResponse(400, "error", "Player " + playerName + " not found or offline."); } }
+            if ("poll-selection".equals(action)) { String playerName = decodeParam(params.get("player")); Location loc = plugin.pollSelectedLocation(playerName); Map<String, Object> responseData = new HashMap<>(); if (loc != null) { responseData.put("status", "found"); responseData.put("world", loc.getWorld().getName()); responseData.put("x", loc.getBlockX()); responseData.put("y", loc.getBlockY()); responseData.put("z", loc.getBlockZ()); } else { responseData.put("status", "waiting"); } return newFixedLengthResponse(Response.Status.OK, "application/json", gson.toJson(responseData)); }
             if ("add-group".equals(action)) { plugin.locationManager.addGroup(decodeParam(params.get("groupName")), decodeParam(params.get("memo")), decodeParam(params.get("parentId"))); return jsonResponse(200, "success", "Group '" + decodeParam(params.get("groupName")) + "' added."); }
             if ("remove-group".equals(action)) { plugin.locationManager.removeGroup(decodeParam(params.get("groupId"))); return jsonResponse(200, "success", "Group and its switches removed."); }
             if ("toggle-group".equals(action)) { plugin.setGroupState(decodeParam(params.get("groupId")), "set".equals(decodeParam(params.get("state")))); return jsonResponse(200, "success", "Toggling group..."); }
@@ -123,7 +99,10 @@ public class WebServer extends NanoHTTPD {
         String worldOptions = worldNames.stream().map(name -> "<option value='" + name + "'>" + name + "</option>").collect(Collectors.joining());
 
         StringBuilder html = new StringBuilder("<!DOCTYPE html><html lang='ja'><head><meta charset='UTF-8'><title>Remote Redstone Dashboard</title><meta name='viewport' content='width=device-width, initial-scale=1'><style>");
-        html.append("body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background-color:#1e1e1e;color:#e0e0e0;margin:0;padding:15px;} .container{max-width:960px;margin:0 auto;} h1,h2,h3{color:#4fc3f7;border-bottom:1px solid #444;padding-bottom:10px;margin-top:1.5em;} .search-bar{width:100%;padding:10px;margin-bottom:20px;background-color:#333;border:1px solid #555;color:#fff;border-radius:5px;box-sizing:border-box;} .group{background-color:#2a2a2a;padding:20px;border-radius:10px;margin-bottom:20px;box-shadow:0 4px 8px rgba(0,0,0,0.3);} .group-header, .switch-name-cell{display:flex;align-items:center;justify-content:space-between;gap:10px;} .group-title{display:flex;align-items:center;gap:8px;} .group-toggle{cursor:pointer;font-size:1.2em;user-select:none;width:20px;} .header-actions{display:flex;align-items:center;gap:10px;} .sub-group{margin-left:25px;margin-top:15px;padding-top:15px;border-top:1px dashed #555;} .group-memo{color:#aaa;font-style:italic;margin-top:5px;flex-basis:100%;} .edit-actions button{margin-left:10px;} table{width:100%;border-collapse:collapse;margin:20px 0;} th,td{padding:12px 15px;text-align:left;border-bottom:1px solid #444;} thead{background-color:#333;} .btn{padding:8px 15px;text-decoration:none;color:white;border-radius:5px;border:none;font-size:14px;cursor:pointer;transition:background-color 0.2s;} .btn-on{background-color:#43a047;} .btn-off{background-color:#d32f2f;} .btn-del{background-color:#616161;} .btn-edit{background-color:#2196f3;} .btn-save{background-color:#8bc34a;} .btn-cancel{background-color:#f44336;} .btn:hover{opacity:0.8;} .btn:disabled{background-color:#555;color:#999;cursor:not-allowed;} form{display:grid;gap:10px;} .form-grid{grid-template-columns:repeat(auto-fit,minmax(120px,1fr));} .coord-selector{grid-column:1/-1;display:flex;gap:10px;} form input,form select{width:100%;padding:10px;background-color:#333;border:1px solid #555;color:#fff;border-radius:5px;box-sizing:border-box;} form button{background-color:#0288d1;padding:12px;font-size:16px;grid-column:1/-1;} .msg{padding:12px;border-radius:5px;margin-bottom:15px;border-left:5px solid #0288d1;display:none;} footer{text-align:center;margin-top:30px;padding-top:15px;border-top:1px solid #444;color:#888;} .edit-form, .collapsed{display:none;}");
+        html.append("body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background-color:#1e1e1e;color:#e0e0e0;margin:0;padding:15px;} .container{max-width:960px;margin:0 auto;} h1,h2,h3{color:#4fc3f7;border-bottom:1px solid #444;padding-bottom:10px;margin-top:1.5em;} .search-bar{width:100%;padding:10px;margin-bottom:20px;background-color:#333;border:1px solid #555;color:#fff;border-radius:5px;box-sizing:border-box;} .group{background-color:#2a2a2a;padding:20px;border-radius:10px;margin-bottom:20px;box-shadow:0 4px 8px rgba(0,0,0,0.3);} .group-header, .switch-name-cell{display:flex;align-items:center;justify-content:space-between;gap:10px;} .group-title{display:flex;align-items:center;gap:8px;} .group-toggle{cursor:pointer;font-size:1.2em;user-select:none;width:20px;} .header-actions{display:flex;align-items:center;gap:10px;} .sub-group{margin-left:25px;margin-top:15px;padding-top:15px;border-top:1px dashed #555;}");
+        // 【変更点】group-header-memoのCSSを追加
+        html.append(".group-header-memo{color:#aaa;font-size:0.9em;font-style:italic;margin-left:10px;}");
+        html.append(".edit-actions button{margin-left:10px;} table{width:100%;border-collapse:collapse;margin:20px 0;} th,td{padding:12px 15px;text-align:left;border-bottom:1px solid #444;} thead{background-color:#333;} .btn{padding:8px 15px;text-decoration:none;color:white;border-radius:5px;border:none;font-size:14px;cursor:pointer;transition:background-color 0.2s;} .btn-on{background-color:#43a047;} .btn-off{background-color:#d32f2f;} .btn-del{background-color:#616161;} .btn-edit{background-color:#2196f3;} .btn-save{background-color:#8bc34a;} .btn-cancel{background-color:#f44336;} .btn:hover{opacity:0.8;} .btn:disabled{background-color:#555;color:#999;cursor:not-allowed;} form{display:grid;gap:10px;} .form-grid{grid-template-columns:repeat(auto-fit,minmax(120px,1fr));} .coord-selector{grid-column:1/-1;display:flex;gap:10px;} form input,form select{width:100%;padding:10px;background-color:#333;border:1px solid #555;color:#fff;border-radius:5px;box-sizing:border-box;} form button{background-color:#0288d1;padding:12px;font-size:16px;grid-column:1/-1;} .msg{padding:12px;border-radius:5px;margin-bottom:15px;border-left:5px solid #0288d1;display:none;} footer{text-align:center;margin-top:30px;padding-top:15px;border-top:1px solid #444;color:#888;} .edit-form, .collapsed{display:none;}");
         html.append("</style></head><body><div class='container'><h1>Redstone Dashboard</h1><div id='message-box' class='msg'></div>");
         html.append("<h2>Search Groups</h2><input type='search' id='group-search' class='search-bar' placeholder='グループ名で検索...'>");
         html.append("<h2>Add New Top-Level Group</h2><form data-action='add-group'><input type='hidden' name='parentId' value=''><input name='groupName' placeholder='New Group Name' required><input name='memo' placeholder='Memo (optional)'><button type='submit' class='btn'>Create Group</button></form>");
@@ -168,7 +147,11 @@ public class WebServer extends NanoHTTPD {
         h.append("<div data-editable data-group-id='").append(groupId).append("'>");
 
         h.append("<div class='group-header display-view'>");
-        h.append("<div class='group-title'><span class='group-toggle' data-action='toggle-visibility'>▶</span><h3>").append(groupName).append("</h3></div>");
+        h.append("<div class='group-title'><span class='group-toggle' data-action='toggle-visibility'>▶</span><h3>").append(groupName).append("</h3>");
+        if (!groupMemo.isEmpty()) {
+            h.append("<span class='group-header-memo'> - ").append(groupMemo).append("</span>");
+        }
+        h.append("</div>");
         h.append("<div class='header-actions'>");
         h.append("<button class='btn btn-on' data-action='toggle-group' data-group-id='").append(groupId).append("' data-state='set'>All ON</button>");
         h.append("<button class='btn btn-off' data-action='toggle-group' data-group-id='").append(groupId).append("' data-state='clear'>All OFF</button>");
@@ -177,9 +160,7 @@ public class WebServer extends NanoHTTPD {
         h.append("</div></div>");
 
         h.append("<div class='group-header edit-form'><div><input type='text' name='newName' value='").append(groupName).append("'><input type='text' name='newMemo' value='").append(groupMemo).append("' placeholder='Memo'></div><div class='edit-actions'><button class='btn btn-save' data-action='save-group'>Save</button><button class='btn btn-cancel' data-action='cancel-edit'>Cancel</button></div></div></div>");
-
         h.append("<div class='group-content collapsed'>");
-        if (!groupMemo.isEmpty()) h.append("<p class='group-memo'>").append(groupMemo).append("</p>");
 
         h.append("<table><thead><tr><th>Name</th><th>Location</th><th>Actions</th></tr></thead><tbody>");
         boolean hasSwitches = false;
