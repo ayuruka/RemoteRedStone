@@ -43,6 +43,7 @@ public class LocationManager {
         String path = "groups." + groupId;
         dataConfig.set(path + ".name", groupName);
         dataConfig.set(path + ".memo", memo);
+        dataConfig.set(path + ".order", System.currentTimeMillis());
         if (parentId != null && !parentId.isEmpty()) {
             dataConfig.set(path + ".parent", parentId);
         }
@@ -54,6 +55,18 @@ public class LocationManager {
         if (dataConfig.isConfigurationSection(path)) {
             dataConfig.set(path + ".name", newName);
             dataConfig.set(path + ".memo", newMemo);
+            saveConfig();
+        }
+    }
+
+    public void updateGroupOrder(String groupA_id, String groupB_id) {
+        String pathA = "groups." + groupA_id;
+        String pathB = "groups." + groupB_id;
+        if (dataConfig.isConfigurationSection(pathA) && dataConfig.isConfigurationSection(pathB)) {
+            long orderA = dataConfig.getLong(pathA + ".order", 0);
+            long orderB = dataConfig.getLong(pathB + ".order", 0);
+            dataConfig.set(pathA + ".order", orderB);
+            dataConfig.set(pathB + ".order", orderA);
             saveConfig();
         }
     }
