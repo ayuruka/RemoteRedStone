@@ -4,3 +4,6 @@
 
 # Webサーバーが使用するポート番号
 web-port: 8080
+
+# trueに設定すると、デバッグログがサーバーコンソールに表示されます。
+debug-console-logging: false

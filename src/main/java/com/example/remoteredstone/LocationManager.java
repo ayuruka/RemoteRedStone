@@ -6,12 +6,8 @@ import org.bukkit.configuration.file.YamlConfiguration;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.InputStreamReader;
-import java.io.OutputStreamWriter;
-import java.io.Reader;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -31,51 +27,73 @@ public class LocationManager {
         if (!configFile.exists()) {
             plugin.saveResource("locations.yml", false);
         }
-        try (Reader reader = new InputStreamReader(Files.newInputStream(configFile.toPath()), StandardCharsets.UTF_8)) {
-            dataConfig = YamlConfiguration.loadConfiguration(reader);
-        } catch (IOException e) {
-            plugin.getLogger().severe("Could not load locations.yml: " + e.getMessage());
-        }
+        dataConfig = YamlConfiguration.loadConfiguration(configFile);
     }
-    public void reloadConfig() {
-        setup();
-    }
+
     public void saveConfig() {
-        try (OutputStreamWriter writer = new OutputStreamWriter(Files.newOutputStream(configFile.toPath()), StandardCharsets.UTF_8)) {
-            writer.write(dataConfig.saveToString());
+        try {
+            dataConfig.save(configFile);
         } catch (IOException e) {
             plugin.getLogger().severe("Could not save locations.yml! " + e.getMessage());
         }
     }
 
-    public void addGroup(String groupId, String groupName, String memo) {
+    public void addGroup(String groupName, String memo, String parentId) {
+        String groupId = "group_" + System.currentTimeMillis();
         String path = "groups." + groupId;
         dataConfig.set(path + ".name", groupName);
         dataConfig.set(path + ".memo", memo);
+        if (parentId != null && !parentId.isEmpty()) {
+            dataConfig.set(path + ".parent", parentId);
+        }
         saveConfig();
     }
 
+    public void updateGroup(String groupId, String newName, String newMemo) {
+        String path = "groups." + groupId;
+        if (dataConfig.isConfigurationSection(path)) {
+            dataConfig.set(path + ".name", newName);
+            dataConfig.set(path + ".memo", newMemo);
+            saveConfig();
+        }
+    }
+
     public void removeGroup(String groupId) {
-        dataConfig.set("groups." + groupId, null);
+        List<String> groupsToDelete = getDescendantGroups(groupId);
+        groupsToDelete.add(groupId);
+
         getAllLocations().entrySet().stream()
-                .filter(entry -> groupId.equals(entry.getValue().get("group")))
+                .filter(entry -> groupsToDelete.contains(entry.getValue().get("group")))
                 .forEach(entry -> removeLocation(entry.getKey()));
+
+        for (String id : groupsToDelete) {
+            dataConfig.set("groups." + id, null);
+        }
         saveConfig();
+    }
+
+    private List<String> getDescendantGroups(String parentId) {
+        return getAllGroups().entrySet().stream()
+                .filter(entry -> parentId.equals(entry.getValue().get("parent")))
+                .flatMap(entry -> {
+                    List<String> descendants = getDescendantGroups(entry.getKey());
+                    descendants.add(entry.getKey());
+                    return descendants.stream();
+                })
+                .collect(Collectors.toList());
     }
 
     public Map<String, Map<String, Object>> getAllGroups() {
         ConfigurationSection section = dataConfig.getConfigurationSection("groups");
         if (section == null) return Collections.emptyMap();
         return section.getKeys(false).stream()
-                .filter(section::isConfigurationSection)
-                .collect(Collectors.toMap(
-                        key -> key,
-                        key -> section.getConfigurationSection(key).getValues(false)
-                ));
+                .collect(Collectors.toMap(key -> key, key -> section.getConfigurationSection(key).getValues(false)));
     }
 
     public void addLocation(String name, String world, int x, int y, int z, String groupId) {
-        String path = "locations." + name;
+        String switchId = "switch_" + System.currentTimeMillis();
+        String path = "locations." + switchId;
+        dataConfig.set(path + ".name", name);
         dataConfig.set(path + ".world", world);
         dataConfig.set(path + ".x", x);
         dataConfig.set(path + ".y", y);
@@ -85,13 +103,21 @@ public class LocationManager {
         saveConfig();
     }
 
-    public void updateLocationState(String name, String state) {
-        dataConfig.set("locations." + name + ".state", state);
+    public void updateSwitch(String switchId, String newName) {
+        String path = "locations." + switchId;
+        if (dataConfig.isConfigurationSection(path)) {
+            dataConfig.set(path + ".name", newName);
+            saveConfig();
+        }
+    }
+
+    public void updateLocationState(String switchId, String state) {
+        dataConfig.set("locations." + switchId + ".state", state);
         saveConfig();
     }
 
-    public void removeLocation(String name) {
-        dataConfig.set("locations." + name, null);
+    public void removeLocation(String switchId) {
+        dataConfig.set("locations." + switchId, null);
         saveConfig();
     }
 
@@ -99,10 +125,6 @@ public class LocationManager {
         ConfigurationSection section = dataConfig.getConfigurationSection("locations");
         if (section == null) return Collections.emptyMap();
         return section.getKeys(false).stream()
-                .filter(section::isConfigurationSection)
-                .collect(Collectors.toMap(
-                        key -> key,
-                        key -> section.getConfigurationSection(key).getValues(false)
-                ));
+                .collect(Collectors.toMap(key -> key, key -> section.getConfigurationSection(key).getValues(false)));
     }
 }

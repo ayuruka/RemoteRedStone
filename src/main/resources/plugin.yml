@@ -1,5 +1,5 @@
 name: RemoteRedstone
-version: Var1.0
+version: 1.1.0
 main: com.example.remoteredstone.RemoteRedstone
 author: Ayuruka
 description: Remotely controls redstone blocks via a configurable web interface with login.
