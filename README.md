@@ -90,7 +90,8 @@ debug-console-logging: false
     ```sh
     cd RemoteRedstone
     mvn clean package
-    ```3.  ビルドが完了すると、`target/`ディレクトリ内に`remoteredstone-x.x.x.jar`という名前のファイルが生成されます。
+    ```
+3.  ビルドが完了すると、`target/`ディレクトリ内に`remoteredstone-x.x.x.jar`という名前のファイルが生成されます。
 
 ## ライセンス
 
